@@ -30,7 +30,7 @@ output:
 
 ## Coverage of Fusarium treated musa root transcriptomes 
 
-<img src="figure/bed-proc-1.png" title="plot of chunk bed-proc" alt="plot of chunk bed-proc" style="display: block; margin: auto;" />
+<img src="figures/bed-proc-1.png" title="plot of chunk bed-proc" alt="plot of chunk bed-proc" style="display: block; margin: auto;" />
 
 
 ## Log Normalization of data using edgeR
@@ -81,11 +81,11 @@ output:
 ## Ma00_g00060  7.011227  8.194757  8.159871
 ```
 
-![plot of chunk unnamed-chunk-1](figure/unnamed-chunk-1-1.png)
+![plot of chunk unnamed-chunk-1](figures/unnamed-chunk-1-1.png)
 
 ## Distance Matrix
 
-![plot of chunk dm](figure/dm-1.png)
+![plot of chunk dm](figures/dm-1.png)
 
 
 
@@ -121,12 +121,12 @@ output:
 
 ## Heatmap with normalised data (Untreat vs 1DPI)
 
-<img src="figure/unnamed-chunk-2-1.png" title="plot of chunk unnamed-chunk-2" alt="plot of chunk unnamed-chunk-2" style="display: block; margin: auto;" />
+<img src="figures/unnamed-chunk-2-1.png" title="plot of chunk unnamed-chunk-2" alt="plot of chunk unnamed-chunk-2" style="display: block; margin: auto;" />
 
 
 ## Heatmap with normalised data (Untreat vs 14DPI)
 
-<img src="figure/unnamed-chunk-3-1.png" title="plot of chunk unnamed-chunk-3" alt="plot of chunk unnamed-chunk-3" style="display: block; margin: auto;" />
+<img src="figures/unnamed-chunk-3-1.png" title="plot of chunk unnamed-chunk-3" alt="plot of chunk unnamed-chunk-3" style="display: block; margin: auto;" />
 
 ## DE genes GO annotation
 
@@ -134,7 +134,7 @@ output:
 * MF =  Molecular Function
 * CC = Cellular component
 
-<img src="figure/unnamed-chunk-4-1.png" title="plot of chunk unnamed-chunk-4" alt="plot of chunk unnamed-chunk-4" style="display: block; margin: auto;" />
+<img src="figures/unnamed-chunk-4-1.png" title="plot of chunk unnamed-chunk-4" alt="plot of chunk unnamed-chunk-4" style="display: block; margin: auto;" />
 
 
 ## DE genes KEGG pathway annotation
@@ -898,16 +898,16 @@ output:
 
 ## Heatmap with foldchanges - Response to stress
 
-<img src="figure/unnamed-chunk-6-1.png" title="plot of chunk unnamed-chunk-6" alt="plot of chunk unnamed-chunk-6" style="display: block; margin: auto;" />
+<img src="figures/unnamed-chunk-6-1.png" title="plot of chunk unnamed-chunk-6" alt="plot of chunk unnamed-chunk-6" style="display: block; margin: auto;" />
 
 ## Heatmap with foldchanges - Carbohydrate metabolic process
 
-<img src="figure/unnamed-chunk-7-1.png" title="plot of chunk unnamed-chunk-7" alt="plot of chunk unnamed-chunk-7" style="display: block; margin: auto;" />
+<img src="figures/unnamed-chunk-7-1.png" title="plot of chunk unnamed-chunk-7" alt="plot of chunk unnamed-chunk-7" style="display: block; margin: auto;" />
 
 
 ## Heatmap with foldchanges - activity
 
-<img src="figure/unnamed-chunk-8-1.png" title="plot of chunk unnamed-chunk-8" alt="plot of chunk unnamed-chunk-8" style="display: block; margin: auto;" />
+<img src="figures/unnamed-chunk-8-1.png" title="plot of chunk unnamed-chunk-8" alt="plot of chunk unnamed-chunk-8" style="display: block; margin: auto;" />
 
 
 ## Conclusion

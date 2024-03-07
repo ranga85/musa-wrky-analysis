@@ -17,7 +17,7 @@ Main goal of the study is to identify Musa WRKY gene family targeting mature miR
 
 # Flowchart
 
-![Workflow for Musa transcriptome analysis](references/Workflow.jpg)
+![Workflow for Musa transcriptome analysis](figures/Workflow.jpg)
 
 
 # Reference
