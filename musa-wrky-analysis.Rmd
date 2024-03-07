@@ -1,0 +1,291 @@
+---
+title: "Musa WRKY Analysis"
+author: "Ranganath Gudimella"
+date: "`r Sys.Date()`"
+output: 
+  html_document: 
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Biostrings)
+library(ggpubr)
+library(ComplexHeatmap)
+library(circlize)
+library(edgeR)
+library(knitr)
+library(kableExtra)
+```
+
+## Background
+
+```{r fasta,echo=FALSE,warning=FALSE,message=FALSE}
+
+musa_genes <- readDNAStringSet("D:/musa-wrky-study/ref/musa_acuminata_v2_gene.fna")
+#musa_cdna_wrky <- grep(pattern = "WRKY",x = names(musa_cdna),value = TRUE)
+
+cat(paste("Number of genes:", length(musa_genes)," ...\n",sep = ""))
+
+#musa_cdna_wrky_fa <- musa_cdna[musa_cdna_wrky]
+
+gene_bed <- data.frame("id"=stringr::str_extract(names(musa_genes),"\\Ma\\S+"),"start" = 1,"end" = width(musa_genes))
+
+gene_annot <-data.frame("id"=stringr::str_extract(names(musa_genes),"\\Ma\\S+"),
+                        "name" = stringr::str_extract(names(musa_genes),"\\s+.*"))
+
+#writeXStringSet(musa_cdna_wrky_fa,filepath = "D:/musa-wrky-study/ref/musa_cdna_wrky.fna",format = "fasta")
+# 
+# write.table(gene_bed,file = "D:/musa-wrky-study/ref/musa_genes_v2.bed",sep = "\t",row.names = FALSE,col.names = FALSE,quote = FALSE)
+
+
+
+
+```
+
+## Methods
+
+* Map transcriptome reads to WRKY cDNA 178 sequences using Bowtie2
+* Counting the number of reads mapped to WRKY genes using Bedtools (Raw counts)
+* Raw counts are counts per million (CPM) normalised using `edgeR` package using non-replicate dispersion method (`estimateGLMCommonDisp`)
+* Identify differentially expressed (based on pvalue < 0.05) WRKY genes between `Untreatvs1DPI`,`1DPIvs1DMock`, `1DPIvs14DPI`, `14DPIvs14DMock` comparisons. 
+* Heatmaps were generated using `ComplexHeatmap` with log2 fold changes as row-wise bar plots. 
+
+
+
+## Coverage of Fusarium treated musa root transcriptomes across WRKY genes
+
+```{r bed-proc,echo=FALSE,warning=FALSE,message=FALSE}
+
+cov_bed <- read.delim("D:/musa-wrky-study/cov/musa_all_gene_cov.bed",sep = "\t",header = FALSE)
+colnames(cov_bed) <- c("geneid","start","end","Untreat","1DPI","14DPI")
+
+my_comparisons <- list(c("Untreat","1DPI"),c("Untreat","14DPI"))
+cov_bed[,c(1,4:6)] %>% 
+reshape2::melt() %>% 
+ggboxplot(x = "variable",y="value",color = "variable",fill = "variable",add = "jitter", shape = "variable") + stat_compare_means(comparisons = my_comparisons)
+
+
+```
+
+## Heatmap across WRKY genes
+
+```{r Heatmap,echo=FALSE,warning=FALSE,message=FALSE,fig.align='center',fig.width=10,fig.height=16}
+
+cov_bed_dat <- data.frame(cov_bed[,c(4:6)],row.names = cov_bed$geneid)
+
+col = colorRamp2(c(0,500,3000,30000),c("#EEEEEE","cornflowerblue","yellow","red"),space = "RGB")
+
+
+Heatmap(as.matrix((cov_bed_dat)),cluster_columns = FALSE,cluster_rows = TRUE,name="Raw Counts",
+                clustering_method_rows = "ward.D",clustering_method_columns = "ward.D",
+                clustering_distance_rows = "euclidean",clustering_distance_columns = "euclidean",
+                row_names_side="right",row_names_gp=gpar(fontsize=8),
+                show_column_names = TRUE,column_names_gp=gpar(fontsize=12),col = col,
+                row_dend_side = "left", show_row_names = TRUE)
+
+```
+
+## Log Normalization of data using edgeR
+
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+
+head(cov_bed_dat)
+sampleinfo <- data.frame("condition"=colnames(cov_bed[4:6]),row.names =  colnames(cov_bed_dat))
+head(sampleinfo)
+
+dgeFull <- DGEList(cov_bed_dat, group=sampleinfo$condition)
+dgeFull
+pseudoCounts <- log2(dgeFull$counts+1)
+head(pseudoCounts)
+
+boxplot(pseudoCounts, col="gray", las=3)
+
+
+```
+
+## Distance Matrix
+
+```{r dm,echo=FALSE,warning=FALSE,message=FALSE}
+
+col = colorRamp2(c(0,5,10,15),c("#EEEEEE","cornflowerblue","yellow","red"),space = "RGB")
+
+
+Heatmap(as.matrix(dist(t(pseudoCounts))),cluster_columns = FALSE,cluster_rows = FALSE,name="Normalized Counts",
+                clustering_method_rows = "ward.D",clustering_method_columns = "ward.D",
+                clustering_distance_rows = "euclidean",clustering_distance_columns = "euclidean",
+                row_names_side="right",row_names_gp=gpar(fontsize=8),
+                show_column_names = TRUE,column_names_gp=gpar(fontsize=12),
+                row_dend_side = "left", show_row_names = TRUE)
+
+
+
+```
+
+
+
+## Differential Expression
+
+```{r DE,echo=FALSE,warning=FALSE,message=FALSE}
+
+dgeFull <- DGEList(dgeFull$counts[apply(dgeFull$counts, 1, sum) != 0, ],
+                   group=dgeFull$samples$group)
+head(dgeFull$counts)
+
+dgeFull <- calcNormFactors(dgeFull, method="TMM")
+dgeFull$samples
+
+norm_data <- cpm(dgeFull)
+
+dgeFull <- estimateGLMCommonDisp(dgeFull)
+dgeTest_1 <- exactTest(dgeFull,pair=c("Untreat","1DPI"))
+dgeTest_2 <- exactTest(dgeFull,pair=c("Untreat","14DPI"))
+
+
+res_1 <- topTags(dgeTest_1, n=nrow(dgeTest_1$table))
+res_2 <- topTags(dgeTest_2, n=nrow(dgeTest_2$table))
+
+
+
+
+siggenes_1 <- mutate(res_1$table[res_1$table$FDR < 0.05,],"comparison"="Untreatvs1DPI") %>% merge(y=gene_annot,by.x=0,by.y="id")
+
+siggenes_2 <- data.frame(res_2$table[res_2$table$FDR < 0.05,],"comparison"="Untreatvs14DPI") %>% merge(y=gene_annot,by.x=0,by.y="id")
+
+# 
+#  write.csv(x = siggenes_1,"Untreatvs1DPI.csv",quote = FALSE,row.names = FALSE)
+#  write.csv(x = siggenes_2,"Untreatvs14DPI.csv",quote = FALSE,row.names = FALSE)
+# write.csv(x = siggenes_3,"1DPIvs14DPI.csv",quote = FALSE,row.names = FALSE)
+# write.csv(x = siggenes_4,"14DPIvs14DMock.csv",quote = FALSE,row.names = FALSE)
+
+
+```
+
+## Heatmap with normalized values
+
+```{r echo=FALSE,warning=FALSE,message=FALSE,fig.align='center',fig.width=10,fig.height=16}
+
+col = colorRamp2(c(0,500,3000,30000),c("#EEEEEE","cornflowerblue","yellow","red"),space = "RGB")
+
+
+Heatmap(as.matrix((norm_data)),cluster_columns = FALSE,cluster_rows = TRUE,name="Normalized Counts",
+                clustering_method_rows = "ward.D",clustering_method_columns = "ward.D",
+                clustering_distance_rows = "euclidean",clustering_distance_columns = "euclidean",
+                row_names_side="right",row_names_gp=gpar(fontsize=8),
+                show_column_names = TRUE,column_names_gp=gpar(fontsize=12),
+                row_dend_side = "left", show_row_names = TRUE,col=col)
+
+
+```
+
+
+## Untreated vs 1DPI
+
+```{r echo=FALSE,warning=FALSE,message=FALSE,fig.align='center',fig.width=8,fig.height=4}
+
+hmap_dat <- merge(siggenes_1,siggenes_2,by = "Row.names",all=TRUE) %>% select(Row.names,logFC.x,logFC.y,)
+
+col = colorRamp2(c(0,500,3000,30000),c("#EEEEEE","cornflowerblue","yellow","red"),space = "RGB")
+
+ha <- rowAnnotation(LogFC = anno_barplot(siggenes_1$logFC, axis = TRUE),
+                          width = unit(c(2,2,2), "cm"),
+                          show_legend = TRUE,
+                          show_annotation_name = TRUE,
+                          annotation_name_offset = unit(4, "mm"),
+                          annotation_name_rot = c(0, 0, 0))
+
+
+as.matrix(subset(norm_data,row.names(norm_data) %in% c(siggenes_1$Row.names))) %>%  
+Heatmap(cluster_columns = FALSE,cluster_rows = TRUE,name="Normalized Counts",
+                clustering_method_rows = "ward.D",clustering_method_columns = "ward.D",
+                clustering_distance_rows = "euclidean",clustering_distance_columns = "euclidean",
+                row_names_side="right",row_names_gp=gpar(fontsize=8),right_annotation = ha,
+                show_column_names = TRUE,column_names_gp=gpar(fontsize=12),
+                row_dend_side = "left", show_row_names = TRUE,col=col)
+
+
+
+```
+
+## Untreat vs 1DMock
+
+```{r echo=FALSE,warning=FALSE,message=FALSE,fig.align='center',fig.width=8,fig.height=4}
+
+ha <- rowAnnotation(LogFC = anno_barplot(siggenes_2$logFC, axis = TRUE),
+                          width = unit(c(2,2,2), "cm"),
+                          show_legend = TRUE,
+                          show_annotation_name = TRUE,
+                          annotation_name_offset = unit(4, "mm"),
+                          annotation_name_rot = c(0, 0, 0))
+
+
+as.matrix(subset(norm_data,row.names(norm_data) %in% c(siggenes_2$Row.names))) %>%  
+Heatmap(cluster_columns = FALSE,cluster_rows = TRUE,name="Normalized Counts",
+                clustering_method_rows = "ward.D",clustering_method_columns = "ward.D",
+                clustering_distance_rows = "euclidean",clustering_distance_columns = "euclidean",
+                row_names_side="right",row_names_gp=gpar(fontsize=8),right_annotation = ha,
+                show_column_names = TRUE,column_names_gp=gpar(fontsize=12),
+                row_dend_side = "left", show_row_names = TRUE,col=col)
+
+
+
+```
+
+## Untreat vs 14DPI
+
+```{r echo=FALSE,warning=FALSE,message=FALSE,fig.align='center',fig.width=8,fig.height=4}
+
+col = colorRamp2(c(0,100,500,1000),c("#EEEEEE","cornflowerblue","yellow","red"),space = "RGB")
+
+
+ha <- rowAnnotation(LogFC = anno_barplot(siggenes_3$logFC, axis = TRUE),
+                          width = unit(c(2,2,2), "cm"),
+                          show_legend = TRUE,
+                          show_annotation_name = TRUE,
+                          annotation_name_offset = unit(4, "mm"),
+                          annotation_name_rot = c(0, 0, 0))
+
+
+as.matrix(subset(norm_data,row.names(norm_data) %in% c(siggenes_3$Row.names))) %>%  
+Heatmap(cluster_columns = FALSE,cluster_rows = TRUE,name="Normalized Counts",
+                clustering_method_rows = "ward.D",clustering_method_columns = "ward.D",
+                clustering_distance_rows = "euclidean",clustering_distance_columns = "euclidean",
+                row_names_side="right",row_names_gp=gpar(fontsize=8),right_annotation = ha,
+                show_column_names = TRUE,column_names_gp=gpar(fontsize=12),
+                row_dend_side = "left", show_row_names = TRUE,col=col)
+
+# knitr::kable(siggenes_3, booktabs = TRUE) %>%
+#   kable_styling(font_size = 14)
+
+```
+
+## Untreat vs 14DMock
+
+```{r echo=FALSE,warning=FALSE,message=FALSE,fig.align='center',fig.width=8,fig.height=4}
+ha <- rowAnnotation(LogFC = anno_barplot(siggenes_4$logFC, axis = TRUE),
+                          width = unit(c(2,2,2), "cm"),
+                          show_legend = TRUE,
+                          show_annotation_name = TRUE,
+                          annotation_name_offset = unit(4, "mm"),
+                          annotation_name_rot = c(0, 0, 0))
+
+
+as.matrix(subset(norm_data,row.names(norm_data) %in% c(siggenes_4$Row.names))) %>%  
+Heatmap(cluster_columns = FALSE,cluster_rows = TRUE,name="Normalized Counts",
+                clustering_method_rows = "ward.D",clustering_method_columns = "ward.D",
+                clustering_distance_rows = "euclidean",clustering_distance_columns = "euclidean",
+                row_names_side="right",row_names_gp=gpar(fontsize=8),right_annotation = ha,
+                show_column_names = TRUE,column_names_gp=gpar(fontsize=12),
+                row_dend_side = "left", show_row_names = TRUE,col=col)
+
+```
+
+## Conclusion
+
+* Overall distribution of counts across WRKY genes shows low expression in 1DPI and 1DMock compared to Untreatment.
+* Differential expression shows upregulation of `Putative Probable WRKY transcription factor 40` in 1DPI 
+* `Putative Probable WRKY transcription factor 42` is upregulated in 14DPI 
+* Clearly WRKY family transcription factors are upregulated due to the time course of fusarium infection and limited to certain WRKY gene families. 
+* __Note: Differential expression is based on non-replicated transcriptome data and the represented genes are with highly enriched transcripts. So, validation of these genes is necessary to support the results.__

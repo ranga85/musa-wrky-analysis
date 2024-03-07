@@ -1,0 +1,397 @@
+---
+title: "Musa WRKY Analysis"
+author: "Ranganath Gudimella"
+date: "`r Sys.Date()`"
+output: 
+  html_document: 
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Biostrings)
+library(ggpubr)
+library(ComplexHeatmap)
+library(circlize)
+library(edgeR)
+library(dplyr)
+library(knitr)
+library(kableExtra)
+```
+
+## Background
+
+```{r fasta,echo=TRUE,warning=FALSE,message=FALSE}
+
+musa_genes <- readDNAStringSet("D:/musa-wrky-study/ref/musa_acuminata_v2_gene.fna")
+
+
+cat(paste("Number of genes:", length(musa_genes)," ...\n",sep = ""))
+
+
+gene_bed <- data.frame("id"=stringr::str_extract(names(musa_genes),"\\Ma\\S+"),"start" = 1,"end" = width(musa_genes))
+
+gene_annot <-data.frame("id"=stringr::str_extract(names(musa_genes),"\\Ma\\S+"),
+                        "name" = stringr::str_extract(names(musa_genes),"\\s+.*"))
+
+#writeXStringSet(musa_cdna_wrky_fa,filepath = "D:/musa-wrky-study/ref/musa_cdna_wrky.fna",format = "fasta")
+# 
+# write.table(gene_bed,file = "D:/musa-wrky-study/ref/musa_genes_v2.bed",sep = "\t",row.names = FALSE,col.names = FALSE,quote = FALSE)
+
+
+
+
+```
+
+## Methods
+
+* Map transcriptome reads to all 35276 genes using Bowtie2
+* Counting the number of reads mapped using Bedtools (Raw counts)
+* Raw counts are counts per million (CPM) normalised using `edgeR` package using non-replicate dispersion method (`estimateGLMCommonDisp`)
+* Identify differentially expressed (based on pvalue < 0.05) WRKY genes between `Untreatvs1DPI`,`Untreatvs14DPI` comparisons. 
+* Heatmaps were generated using `ComplexHeatmap` with log2 fold changes as row-wise bar plots. 
+
+
+
+## Coverage of Fusarium treated musa root transcriptomes 
+
+```{r bed-proc,echo=TRUE,warning=FALSE,message=FALSE,dpi=300,fig.align='center',fig.width=8,fig.height=6}
+
+cov_bed <- read.delim("D:/musa-wrky-study/cov/musa_all_gene_cov.bed",sep = "\t",header = FALSE)
+colnames(cov_bed) <- c("geneid","start","end","Untreat","1DPI","14DPI")
+
+my_comparisons <- list(c("Untreat","1DPI"),c("Untreat","14DPI"))
+cov_bed[,c(1,4:6)] %>% 
+reshape2::melt() %>% 
+ggboxplot(x = "variable",y="value",color = "variable",fill = "variable",add = "jitter", shape = "variable") + stat_compare_means(comparisons = my_comparisons)
+
+
+```
+
+
+## Log Normalization of data using edgeR
+
+```{r echo=TRUE,warning=FALSE,message=FALSE}
+
+cov_bed_dat <- data.frame(cov_bed[,c(4:6)],row.names = cov_bed$geneid)
+head(cov_bed_dat)
+sampleinfo <- data.frame("condition"=colnames(cov_bed[4:6]),row.names =  colnames(cov_bed_dat))
+head(sampleinfo)
+
+dgeFull <- DGEList(cov_bed_dat, group=sampleinfo$condition)
+dgeFull
+pseudoCounts <- log2(dgeFull$counts+1)
+head(pseudoCounts)
+
+boxplot(pseudoCounts, col="gray", las=3)
+
+
+```
+
+## Distance Matrix
+
+```{r dm,echo=TRUE,warning=FALSE,message=FALSE,dpi=300}
+
+col = colorRamp2(c(0,5,10,15),c("#EEEEEE","cornflowerblue","yellow","red"),space = "RGB")
+
+
+Heatmap(as.matrix(dist(t(pseudoCounts))),cluster_columns = FALSE,cluster_rows = FALSE,name="Normalized Counts",
+                clustering_method_rows = "ward.D",clustering_method_columns = "ward.D",
+                clustering_distance_rows = "euclidean",clustering_distance_columns = "euclidean",
+                row_names_side="right",row_names_gp=gpar(fontsize=8),
+                show_column_names = TRUE,column_names_gp=gpar(fontsize=12),
+                row_dend_side = "left", show_row_names = TRUE)
+
+
+
+```
+
+
+
+## Differential Expression
+
+```{r DE,echo=TRUE,warning=FALSE,message=FALSE}
+
+dgeFull <- DGEList(dgeFull$counts[apply(dgeFull$counts, 1, sum) != 0, ],
+                   group=dgeFull$samples$group)
+head(dgeFull$counts)
+
+dgeFull <- calcNormFactors(dgeFull, method="TMM")
+dgeFull$samples
+
+norm_data <- cpm(dgeFull)
+
+dgeFull <- estimateGLMCommonDisp(dgeFull)
+dgeTest_1 <- exactTest(dgeFull,pair=c("Untreat","1DPI"))
+dgeTest_2 <- exactTest(dgeFull,pair=c("Untreat","14DPI"))
+
+
+res_1 <- topTags(dgeTest_1, n=nrow(dgeTest_1$table))
+res_2 <- topTags(dgeTest_2, n=nrow(dgeTest_2$table))
+
+
+
+
+siggenes_1 <- mutate(res_1$table[res_1$table$FDR < 0.05,],"comparison"="Untreatvs1DPI") %>% merge(y=gene_annot,by.x=0,by.y="id")
+
+siggenes_2 <- data.frame(res_2$table[res_2$table$FDR < 0.05,],"comparison"="Untreatvs14DPI") %>% merge(y=gene_annot,by.x=0,by.y="id")
+
+
+cat(paste("Number of differential expressed genes for Untreated vs 1DPI = ",nrow(siggenes_1),"\n"),sep = "")
+cat(paste("Number of differential expressed genes for Untreated vs 14DPI = ",nrow(siggenes_2)),"\n",sep = "")
+ 
+ # write.table(x = siggenes_1,"Untreatvs1DPI.tsv",quote = FALSE,row.names = FALSE,sep = "\t")
+ # write.table(x = siggenes_2,"Untreatvs14DPI.tsv",quote = FALSE,row.names = FALSE,sep = "\t")
+
+
+
+```
+
+
+
+## Heatmap with normalised data (Untreat vs 1DPI)
+
+```{r echo=TRUE,warning=FALSE,message=FALSE,fig.align='center',fig.width=8,fig.height=12,dpi=300}
+
+#hmap_dat <- merge(siggenes_1,siggenes_2,by = "Row.names",all=TRUE) %>% select(Row.names,logFC.x,logFC.y,)
+
+col = colorRamp2(c(0,5,15,30),c("#EEEEEE","cornflowerblue","yellow","red"),space = "RGB")
+
+ha <- rowAnnotation(LogFC = anno_barplot(siggenes_1$logFC, axis = TRUE),
+                          width = unit(c(2,2,2), "cm"),
+                          show_legend = TRUE,
+                          show_annotation_name = TRUE,
+                          annotation_name_offset = unit(4, "mm"),
+                          annotation_name_rot = c(0, 0, 0))
+
+
+as.matrix(subset(norm_data[,-3],row.names(norm_data) %in% c(siggenes_1$Row.names))) %>%  
+Heatmap(cluster_columns = FALSE,cluster_rows = TRUE,name="Normalized Counts",
+                clustering_method_rows = "ward.D",clustering_method_columns = "ward.D",
+                clustering_distance_rows = "euclidean",clustering_distance_columns = "euclidean",
+                row_names_side="right",row_names_gp=gpar(fontsize=8),right_annotation = ha,
+                show_column_names = TRUE,column_names_gp=gpar(fontsize=12),
+                row_dend_side = "left", show_row_names = TRUE,col=col)
+
+
+
+```
+
+
+## Heatmap with normalised data (Untreat vs 14DPI)
+
+```{r echo=TRUE,warning=FALSE,message=FALSE,fig.align='center',fig.width=8,fig.height=16,dpi=300}
+
+
+col = colorRamp2(c(0,5,15,30),c("#EEEEEE","cornflowerblue","yellow","red"),space = "RGB")
+
+ha <- rowAnnotation(LogFC = anno_barplot(siggenes_2$logFC, axis = TRUE),
+                          width = unit(c(2,2,2), "cm"),
+                          show_legend = TRUE,
+                          show_annotation_name = TRUE,
+                          annotation_name_offset = unit(4, "mm"),
+                          annotation_name_rot = c(0, 0, 0))
+
+
+as.matrix(subset(norm_data[,-2],row.names(norm_data) %in% c(siggenes_2$Row.names))) %>%  
+Heatmap(cluster_columns = FALSE,cluster_rows = TRUE,name="Normalized Counts",
+                clustering_method_rows = "ward.D",clustering_method_columns = "ward.D",
+                clustering_distance_rows = "euclidean",clustering_distance_columns = "euclidean",
+                row_names_side="right",row_names_gp=gpar(fontsize=8),right_annotation = ha,
+                show_column_names = TRUE,column_names_gp=gpar(fontsize=12),
+                row_dend_side = "left", show_row_names = TRUE,col=col)
+
+```
+
+## DE genes GO annotation
+
+* BP = Biological process
+* MF =  Molecular Function
+* CC = Cellular component
+
+```{r echo=TRUE,warning=FALSE,message=FALSE,fig.align='center',fig.width=8,fig.height=10,dpi=300}
+hmap_dat <- merge(siggenes_1[,c(1,2,7)],siggenes_2[,c(1,2,7)],by = c("Row.names","name"),all=TRUE) %>% replace(is.na(.),0)
+rownames(hmap_dat) <- hmap_dat$Row.names
+colnames(hmap_dat) <- c("gene_id","annotation","Untreated_vs_1DPI","Untreated_vs_14DPI")
+
+musa_go_annot <- read.delim("D:/DropboxBackup/musa-meth-v2/Gene-dist-cat/blast2go_go_table_20160717_2017.txt",header = TRUE)
+
+
+hmap_dat_annot <- merge(musa_go_annot[,c(1,8)],hmap_dat,by.x = "SeqName",by.y="gene_id",all.y=TRUE) %>% 
+                  mutate(BP = stringr::str_extract(GO.Names.list,"response to stress|signal transduction|generation of precursor metabolites and energy|carbohydrate metabolic process|response to abiotic stimulus"),
+                         MF = stringr::str_extract(GO.Names.list,"transcription factor activity|catalytic activity| protein binding"),
+                         CC =  stringr::str_extract(GO.Names.list,"cell wall|cytoplasm|intracellular membrane-bounded organelle|membrane"))
+
+rownames(hmap_dat_annot) <- hmap_dat_annot$SeqName
+
+# write.table(go_annot_count,file = "D:/musa-wrky-study/cov/DE-genes-GOcount.tsv",sep = "\t",row.names = FALSE,col.names = FALSE,quote = FALSE)
+
+go_annot_count <- hmap_dat_annot[,c(1,6,7,8)] %>% reshape2::melt(id.vars = c("SeqName")) %>%  dplyr::group_by(value,variable) %>% dplyr::summarise(count=n(),toString(SeqName)) %>% tidyr::drop_na() %>% arrange(variable)
+
+colnames(go_annot_count) <- c("GOterm","category","count","Genes")
+
+go_annot_count %>% ggbarplot("GOterm","count",color = "category",fill="category",label = TRUE, label.pos = "out",palette = "jco") + theme(axis.text.x = element_text(angle = 80, hjust = 1))
+
+```
+
+
+## DE genes KEGG pathway annotation
+
+```{r echo=TRUE,warning=FALSE,message=FALSE}
+#library(KEGGREST)
+#pathways.list <- keggList("pathway", "mus")
+#head(pathways.list)
+
+# pathway.codes <- sub("path:", "", names(pathways.list)) 
+# genes.by.pathway <- sapply(pathway.codes,
+#     function(pwid){
+#         pw <- keggGet(pwid)
+#         if (is.null(pw[[1]]$GENE)) return(NA)
+#         pw2 <- pw[[1]]$GENE[c(TRUE,FALSE)] # may need to modify this to c(FALSE, TRUE) for other organisms
+#         pw2 <- unlist(lapply(strsplit(pw2, split = ";", fixed = T), function(x)x[1]))
+#         return(pw2)
+#     }
+# )
+# head(genes.by.pathway)
+# 
+# musa_gff <- read.table("D:/musa-wrky-study/ref/musa_acuminata_v2.gff3",sep = "\t")
+# 
+# musa_gene_id <- musa_gff %>% 
+#   select(V3,V9) %>% 
+#   filter(V3  == "mRNA") %>% 
+#   mutate(geneid = stringr::str_extract(V9,"\\Ma\\S+\\_g\\d+"),
+#   ncbi_gene = stringr::str_extract(V9,"\\Dbxref=\\S+\\,")) %>% 
+#   mutate(ncbi_gene_id = stringr::str_replace(string = ncbi_gene,pattern =  "\\Dbxref=GeneID:",replacement = ""),
+#          gene =  stringr::str_replace(string = geneid,pattern = "\\S+\\=",replacement = "")) %>%
+#   mutate(ncbi_gene_id = stringr::str_replace(ncbi_gene_id,pattern = "\\,\\S+|\\,",replacement = "")) %>%
+#   select(ncbi_gene_id,gene) %>% unique() 
+# 
+# DE_pval <- merge(siggenes_1[,c(1,4,6,7)],siggenes_2[,c(1,4,6,7)],by = c("Row.names","PValue","comparison","name"),all=TRUE) %>% replace(is.na(.),0)
+# 
+# 
+# DE_geneid <- merge(DE_pval,musa_gene_id,by.x="Row.names",by.y="gene",all.x= TRUE)  %>% tidyr::drop_na()
+# 
+# geneList <- DE_geneid$PValue
+# names(geneList) <- DE_geneid$ncbi_gene_id
+# 
+# pVals.by.pathway <- t(sapply(names(genes.by.pathway),
+#     function(pathway) {
+#         pathway.genes <- genes.by.pathway[[pathway]]
+#         list.genes.in.pathway <- intersect(names(geneList), pathway.genes)
+#         list.genes.not.in.pathway <- setdiff(names(geneList), list.genes.in.pathway)
+#         scores.in.pathway <- geneList[list.genes.in.pathway]
+#         scores.not.in.pathway <- geneList[list.genes.not.in.pathway]
+#         if (length(scores.in.pathway) > 0){
+#             p.value <- wilcox.test(scores.in.pathway, scores.not.in.pathway, alternative = "less")$p.value
+#         } else{
+#             p.value <- NA
+#         }
+#         return(c(p.value = p.value, Annotated = length(list.genes.in.pathway) , genelist = toString(list.genes.in.pathway)))
+#     }
+# ))
+# 
+# pathways.list.df <- data.frame(pathways.list,id=sub("path:", "", names(pathways.list)))
+# rownames(pathways.list.df) <- NULL
+#   
+# # Assemble output table
+# outdat <- data.frame(pathway.code = rownames(pVals.by.pathway))
+# outdat$p.value <- pVals.by.pathway[,"p.value"]
+# outdat$Annotated <- pVals.by.pathway[,"Annotated"]
+# outdat$genelist <- pVals.by.pathway[,"genelist"]
+# outdat <- outdat[order(outdat$p.value),] %>% filter(Annotated > 0)
+# outdat <- merge(pathways.list.df,outdat,by.x="id",by.y="pathway.code") %>% arrange(desc(Annotated))
+# 
+
+
+ kable(DE_geneid,format = "html",align = 'c') %>% kable_styling(bootstrap_options = 'striped', full_width = F) %>% scroll_box(width = "100%", height = "550px")
+
+ 
+ kable(outdat,format = "html",align = 'c') %>% kable_styling(bootstrap_options = 'striped', full_width = F) %>% scroll_box(width = "100%", height = "550px")
+
+ # write.table(DE_geneid,file = "D:/musa-wrky-study/DEGenes/DE-genes-ncbi.tsv",sep = "\t",row.names = FALSE,col.names = TRUE,quote = FALSE)
+ # 
+ # write.table(outdat,file = "D:/musa-wrky-study/DEGenes/DE-genes-KEGG-pathway.tsv",sep = "\t",row.names = FALSE,col.names = TRUE,quote = FALSE)
+ # 
+```
+
+
+## Heatmap with foldchanges - Response to stress
+
+```{r echo=TRUE,warning=FALSE,message=FALSE,fig.align='center',fig.width=10,fig.height=8,dpi=300}
+
+
+
+#col = colorRamp2(c(0,5,10,20),c("#EEEEEE","cornflowerblue","yellow","red"),space = "RGB")
+
+ha1 <- hmap_dat_annot %>% select(Untreated_vs_1DPI,Untreated_vs_14DPI,BP,annotation) %>% filter(grepl("response",BP))  %>% select(annotation) 
+
+ha <- rowAnnotation(Annot = anno_text(ha1$annotation, location = 0.5, just = "center",gp = gpar(fontsize = 8)))
+
+  
+hmap_dat_annot %>% select(Untreated_vs_1DPI,Untreated_vs_14DPI,BP) %>% filter(grepl("response",BP)) %>% select(Untreated_vs_1DPI,Untreated_vs_14DPI) %>% as.matrix() %>%
+Heatmap(cluster_columns = FALSE,cluster_rows = TRUE,name="Log Fold Changes",
+                clustering_method_rows = "ward.D",clustering_method_columns = "ward.D",
+                clustering_distance_rows = "euclidean",clustering_distance_columns = "euclidean",
+                row_names_side="right",row_names_gp=gpar(fontsize=8),
+                rect_gp = gpar(col = "black", lwd = 0.5),right_annotation = ha, 
+                show_column_names = TRUE,column_names_gp=gpar(fontsize=12),
+                row_dend_side = "left", show_row_names = TRUE,column_title = "Response to stress")
+
+
+```
+
+## Heatmap with foldchanges - Carbohydrate metabolic process
+
+```{r echo=TRUE,warning=FALSE,message=FALSE,fig.align='center',fig.width=10,fig.height=12,dpi=300}
+
+
+ha1 <- hmap_dat_annot %>% select(Untreated_vs_1DPI,Untreated_vs_14DPI,BP,annotation) %>% filter(grepl("carbohydrate",BP))  %>% select(annotation) 
+
+ha <- rowAnnotation(Annot = anno_text(ha1$annotation, location = 0.5, just = "center",gp = gpar(fontsize = 8)))
+
+  
+
+hmap_dat_annot %>% select(Untreated_vs_1DPI,Untreated_vs_14DPI,BP) %>% filter(grepl("carbohydrate",BP)) %>% select(Untreated_vs_1DPI,Untreated_vs_14DPI) %>% as.matrix() %>%
+Heatmap(cluster_columns = FALSE,cluster_rows = TRUE,name="Log Fold Changes",
+                clustering_method_rows = "ward.D",clustering_method_columns = "ward.D",
+                clustering_distance_rows = "euclidean",clustering_distance_columns = "euclidean",
+                row_names_side="right",row_names_gp=gpar(fontsize=8),
+                rect_gp = gpar(col = "black", lwd = 0.5),right_annotation = ha,
+                show_column_names = TRUE,column_names_gp=gpar(fontsize=12),
+                row_dend_side = "left", show_row_names = TRUE,column_title = "carbohydrate metabolism")
+
+```
+
+
+## Heatmap with foldchanges - activity
+
+```{r echo=TRUE,warning=FALSE,message=FALSE,fig.align='center',fig.width=10,fig.height=12,dpi=300}
+
+ha1 <- hmap_dat_annot %>% select(Untreated_vs_1DPI,Untreated_vs_14DPI,MF,annotation) %>% filter(grepl("activity",MF))  %>% select(annotation) 
+
+ha <- rowAnnotation(Annot = anno_text(ha1$annotation, location = 0.5, just = "center",gp = gpar(fontsize = 8)))
+
+
+hmap_dat_annot %>% select(Untreated_vs_1DPI,Untreated_vs_14DPI,MF) %>% filter(grepl("activity",MF)) %>% select(Untreated_vs_1DPI,Untreated_vs_14DPI) %>% as.matrix() %>%
+Heatmap(cluster_columns = FALSE,cluster_rows = TRUE,name="Log Fold Changes",
+                clustering_method_rows = "ward.D",clustering_method_columns = "ward.D",
+                clustering_distance_rows = "euclidean",clustering_distance_columns = "euclidean",
+                row_names_side="right",row_names_gp=gpar(fontsize=8),
+                rect_gp = gpar(col = "black", lwd = 0.5),right_annotation = ha,
+                show_column_names = TRUE,column_names_gp=gpar(fontsize=12),
+                row_dend_side = "left", show_row_names = TRUE,column_title = "Catalytic & transcription")
+
+
+```
+
+
+## Conclusion
+
+* Overall distribution of counts shows 14DPI has more transcriptome expression compared to Untreatment or 1DPI.
+* Differential expression shows 85 and 267 genes from `untreated vs 1DPI` & `untreated vs 14DPI` respectively.  
+* GO annotation clearly show elevated levels in `stress responsive genes` and `transcription factor activity` in 14DPI.
+* `WRKY`,`MADS-box`,`Homeobox` and `ERF` are upregulated in 14DPI.
+* KEGG pathway annotation shows genes are acting from following pathways `MAPK signaling pathway`,`Plant-Harmone signalling`,`plant-pathogen interaction` .
+* __Note: Differential expression is based on non-replicated transcriptome data.For statistical inference,  validation  by replicated samples is necessary to support the results.__
